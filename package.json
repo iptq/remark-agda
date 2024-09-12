@@ -1,0 +1,22 @@
+{
+  "name": "remark-agda",
+  "module": "src/index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest",
+    "rehype-stringify": "^10.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.0",
+    "vfile": "^6.0.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "hast-util-from-html": "^2.0.2",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0"
+  },
+  "trustedDependencies": ["@biomejs/biome"]
+}
