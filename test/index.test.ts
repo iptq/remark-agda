@@ -1,22 +1,22 @@
 import { test } from "bun:test";
 import { resolve, dirname, join } from "node:path";
 import { unified } from "unified";
-import remarkAgda from "../src";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import { VFile } from "vfile";
+import rehypeRaw from "rehype-raw";
+import { read } from "to-vfile";
+
+import remarkAgda, { type RemarkAgdaOptions } from "../src";
 
 test("simple case", async () => {
   const file = join(dirname(import.meta.path), "Simple.lagda.md");
-  const vfile = new VFile({ path: file });
+  const vfile = await read(file);
 
-  const result = await unified()
-    .use(remarkParse)
-    .use(remarkAgda, {
-      destDir: join(dirname(import.meta.path), "results"),
-      transformHtml: (src) => {
-        return `
+  const options: RemarkAgdaOptions = {
+    destDir: join(dirname(import.meta.path), "results"),
+    transformHtml: (src) => {
+      return `
           <!DOCTYPE html>
           <html>
           <head>
@@ -29,10 +29,14 @@ test("simple case", async () => {
           </body>
           </html>
         `;
-      },
-    })
-    .use(remarkRehype)
+    },
+  };
+
+  await unified()
+    .use(remarkParse)
+    .use(remarkAgda, options)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
     .use(rehypeStringify)
     .process(vfile);
-  console.log("result", result);
 });

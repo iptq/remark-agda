@@ -1,6 +1,6 @@
 import { join, parse } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync, spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   readdir,
   mkdtemp,
@@ -10,12 +10,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
-
 import type { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { fromHtml } from "hast-util-from-html";
 import { toHtml } from "hast-util-to-html";
+import type { RootContent } from "hast";
+import type { Node as UnistNode } from "unist";
 
 export interface RemarkAgdaOptions {
   /** Place to output the HTML files */
@@ -31,7 +32,7 @@ export interface RemarkAgdaOptions {
   extraAgdaFlags?: string[];
 }
 
-const remarkAgda: Plugin<[RemarkAgdaOptions]> = ({
+export const remarkAgda: Plugin<[RemarkAgdaOptions]> = ({
   agdaBin,
   extraAgdaFlags,
   destDir,
@@ -48,19 +49,14 @@ const remarkAgda: Plugin<[RemarkAgdaOptions]> = ({
     }
 
     const path = history[history.length - 1];
-    // console.log("path", path);
     // if (!(path.endsWith(".lagda.md") || path.endsWith(".agda"))) return;
-
     // console.log("AGDA:processing path", path);
-
     const agdaOutDir = await mkdtemp(join(tmpdir(), "agdaRender."));
     // const agdaOutDir = join(tempDir, "output");
     const agdaOutFilename = parse(path).base.replace(/\.lagda.md$/, ".md");
     const agdaOutFile = join(agdaOutDir, agdaOutFilename);
-    console.log("looking for file", agdaOutFile);
     // mkdirSync(agdaOutDir, { recursive: true });
-
-    const childOutput = await spawnSync(
+    const childOutput = spawnSync(
       agdaBin ?? "agda",
       [
         "--html",
@@ -94,7 +90,6 @@ const remarkAgda: Plugin<[RemarkAgdaOptions]> = ({
     // console.error(childOutput.stdout?.toString());
     // console.error(childOutput.stderr?.toString());
     // console.error("--AGDA OUTPUT--");
-
     const referencedFiles = new Set();
 
     const writtenFiles = await readdir(agdaOutDir);
@@ -118,48 +113,70 @@ const remarkAgda: Plugin<[RemarkAgdaOptions]> = ({
 
     const htmlname = parse(path).base.replace(/\.lagda.md/, ".html");
 
-    const doc = await readFile(agdaOutFile);
+    const doc = await readFile(agdaOutFile, { encoding: "utf-8" });
 
     // This is the post-processed markdown with HTML code blocks replacing the Agda code blocks
     const tree2 = fromMarkdown(doc);
 
-    const collectedCodeBlocks: RootContent[] = [];
+    const collectedCodeBlocks: string[] = [];
+
     visit(tree2, "html", (node) => {
       const html = fromHtml(node.value, { fragment: true });
-
-      const firstChild: RootContent = html.children[0]!;
 
       visit(html, "element", (node) => {
         if (node.tagName !== "a") return;
 
-        if (node.properties.href) {
+        if (typeof node.properties.href === "string") {
           // Trim off end
           const [href, hash, ...rest] = node.properties.href.split("#");
           if (rest.length > 0) throw new Error("come look at this");
 
           if (href === htmlname) node.properties.href = `#${hash}`;
 
-          if (referencedFiles.has(href)) {
-            node.properties.href = `${base}generated/agda/${href}${hash ? `#${hash}` : ""}`;
-            node.properties.target = "_blank";
-          }
+          // TODO: Transform
+          // if (referencedFiles.has(href)) {
+          //   node.properties.href = `${base}generated/agda/${href}${hash ? `#${hash}` : ""}`;
+          //   node.properties.target = "_blank";
+          // }
         }
       });
 
-      if (!firstChild?.properties?.className?.includes("Agda")) return;
+      while (true) {
+        if (html.children.length > 0) {
+          const firstChild: RootContent = html.children[0];
 
-      const stringContents = toHtml(firstChild);
-      collectedCodeBlocks.push({
-        contents: stringContents,
-      });
+          if (firstChild.type !== "element") break;
+
+          const className = firstChild.properties.className;
+
+          // @ts-ignore TODO: Fix this
+          if (!className?.includes("Agda")) break;
+
+          const stringContents = toHtml(firstChild);
+          collectedCodeBlocks.push(stringContents);
+        }
+        break;
+      }
     });
 
+    console.log(`Collected ${collectedCodeBlocks.length} blocks!`);
+
     let idx = 0;
-    visit(tree, "code", (node) => {
+
+    visit(tree, "code", (node: UnistNode) => {
+      // Make sure it's either null (which gets interpreted as agda), or agda
+      // @ts-ignore
       if (!(node.lang === null || node.lang === "agda")) return;
 
+      // node.type = "html";
+
       node.type = "html";
-      node.value = collectedCodeBlocks[idx].contents;
+
+      // @ts-ignore
+      node.value = collectedCodeBlocks[idx];
+
+      console.log(node);
+
       idx += 1;
     });
   };
